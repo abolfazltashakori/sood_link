@@ -9,9 +9,10 @@ import os
 from urllib.parse import urlparse
 from ftplib import FTP
 import asyncio
-import logger
+import logging
 from linktofile import FTP_HOST_IRAN, FTP_USER_IRAN, FTP_PASS_IRAN
 
+logger = logging.getLogger(__name__)
 global_convers = {}
 pending_links = {}
 
@@ -22,6 +23,12 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+def readable(size: float) -> str:
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} GB"
 
 @bot.on_message(filters.command("start"))
 async def start(client, message):
@@ -53,12 +60,13 @@ async def start(client, message):
             resize_keyboard=True
         )
         menu_text = "🏠 <b>منوی اصلی</b>\nلطفاً یک گزینه را انتخاب کنید:"
+    await message.reply_text(menu_text, reply_markup=keyboard)
 
 @bot.on_message(filters.text & filters.regex("^📊 ترافیک باقیمانده$"))
 async def return_terrafic(client, message):
     user_id = message.from_user.id
     traffic = return_traffic(user_id)
-    await message.reply_text(f"{traffic}ترافیک باقی مانده شما: ")
+    await message.reply_text(f"ترافیک باقی مانده شما: {readable(traffic)}")
 
 
 @bot.on_message(filters.text & filters.regex(r'https?://[^\s]+'))
@@ -91,14 +99,6 @@ async def handle_link(client: Client, message: Message):
         reply_markup=keyboard,
         quote=True
     )
-
-def readable(size: float) -> str:
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.2f} {unit}"
-        size /= 1024
-    return f"{size:.2f} GB"
-
 
 def get_file_info_from_url(url):
     try:
