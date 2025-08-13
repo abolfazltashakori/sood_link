@@ -11,18 +11,11 @@ from ftplib import FTP
 import asyncio
 import logging
 from linktofile import *
-import asyncio
-import time
-from collections import defaultdict
-from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 global_convers = {}
 pending_links = {}
-global_upload_queue = asyncio.Queue()
-global_queue_lock = asyncio.Lock()
-upload_queues = defaultdict(asyncio.Queue)
-upload_locks = defaultdict(asyncio.Lock)
+
 
 bot = Client(
     "Link_service_bot",
@@ -47,123 +40,6 @@ def format_time(seconds: float) -> str:
     if m:
         return f"{m}m {s}s"
     return f"{s}s"
-
-
-def calculate_estimated_time(waiting_count):
-    """محاسبه زمان تقریبی شروع بر اساس صف جهانی"""
-    avg_time_per_file = 60  # میانگین ثانیه برای هر فایل
-
-    if waiting_count <= 0:
-        return "کمتر از ۱ دقیقه"
-
-    total_seconds = waiting_count * avg_time_per_file
-
-    # تبدیل به ساعت/دقیقه
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    if hours > 0:
-        return f"{int(hours)} ساعت و {int(minutes)} دقیقه"
-    elif minutes > 0:
-        return f"{int(minutes)} دقیقه"
-    return f"{int(seconds)} ثانیه"
-
-
-async def process_global_queue(client):
-    """پردازشگر صف جهانی"""
-    logger.info("Global queue processor running...")
-    while True:
-        try:
-            file_info = await global_upload_queue.get()
-        except Exception as e:
-            logger.exception(f"Error getting from global queue: {e}")
-            await asyncio.sleep(1)
-            continue
-
-        try:
-            # محاسبه موقعیت در صف و زمان تقریبی
-            queue_size = global_upload_queue.qsize()
-            queue_position = queue_size + 1
-            estimated_time = calculate_estimated_time(queue_size)
-
-            message = file_info.get("message")
-            status_msg = file_info.get("status_msg")
-
-            # ارسال/ویرایش پیام وضعیت
-            try:
-                if status_msg:
-                    await status_msg.edit_text(
-                        f"📥 لینک در صف قرار دارد\n🔢 موقعیت: {queue_position}\n⏱ زمان تقریبی شروع: {estimated_time}"
-                    )
-                else:
-                    status_msg = await message.reply_text(
-                        f"📥 لینک در صف قرار دارد\n🔢 موقعیت: {queue_position}\n⏱ زمان تقریبی شروع: {estimated_time}"
-                    )
-                    file_info["status_msg"] = status_msg
-            except Exception:
-                pass
-
-            # مدیریت ترافیک
-            file_size = file_info.get("file_size", 0)
-            user_id = message.from_user.id if message and message.from_user else None
-
-            if file_size and user_id:
-                if not decrease_traffic(user_id, file_size):
-                    if status_msg:
-                        await status_msg.edit_text("❌ ترافیک کافی ندارید!")
-                    global_upload_queue.task_done()
-                    continue
-
-
-            try:
-                if status_msg:
-                    await status_msg.edit_text("⏳ در حال شروع پردازش...")
-
-                download_link = await asyncio.to_thread(
-                    upload_to_ftp_with_progress,
-                    file_info["url"],
-                    file_info["file_name"],
-                    lambda u, t: asyncio.run_coroutine_threadsafe(
-                        update_progress(u, t, file_info, "📥 در حال دریافت فایل..."),
-                        client.loop
-                    )
-                )
-
-                if download_link:
-                    success_text = (
-                        f"✅ آپلود موفق!\n\n"
-                        f"📝 نام فایل: `{file_info['file_name']}`\n"
-                        f"📦 حجم: {readable(file_info['file_size'])}\n"
-                        f"🔗 لینک: [دانلود فایل]({download_link})"
-                    )
-                    await status_msg.edit_text(success_text)
-                else:
-                    await status_msg.edit_text("❌ خطا در آپلود فایل")
-
-            except Exception as e:
-                logger.error(f"Upload error: {e}")
-                await status_msg.edit_text("❌ خطای سیستمی در آپلود")
-
-        finally:
-            global_upload_queue.task_done()
-            await asyncio.sleep(0.5)
-
-
-async def update_progress(uploaded, total, file_info, status):
-    try:
-        percent = (uploaded / total) * 100
-        progress_bar = "[" + "■" * int(percent / 10) + " " * (10 - int(percent / 10)) + "]"
-
-        text = (
-            f"{status}\n"
-            f"{progress_bar} {percent:.1f}%\n"
-            f"📦 {readable(uploaded)} از {readable(total)}"
-        )
-
-        if file_info.get("status_msg"):
-            await file_info["status_msg"].edit_text(text)
-    except Exception as e:
-        logger.error(f"Error updating progress: {e}")
 
 
 @bot.on_message(filters.command("start"))
@@ -207,15 +83,7 @@ async def return_terrafic(client, message):
 
 @bot.on_message(filters.text & filters.regex(r'https?://[^\s]+'))
 async def handle_link(client: Client, message: Message):
-    user = message.from_user
-    user_id = user.id
-
-    create_user_if_not_exists(
-        user_id,
-        user.first_name,
-        user.last_name,
-        user.username
-    )
+    user_id = message.from_user.id
     url = message.text.strip()
 
     file_name, file_size = await asyncio.to_thread(get_file_info_from_url, url)
@@ -321,56 +189,33 @@ async def handle_link_confirmation(client, callback_query):
     # نمایش وضعیت اولیه آپلود
     message = await callback_query.message.edit_text("⏳ در حال آماده‌سازی...")
 
-    # ایجاد اطلاعات فایل برای صف
-    file_info = {
-        "user_id": user_id,
-        "url": url,
-        "file_name": file_name,
-        "file_size": file_size,
-        "message": callback_query.message,
-        "status_msg": message,
-        "is_link": True  # علامت گذاری به عنوان لینک
-    }
+    # متغیرهای مدیریت پیشرفت
+    last_update_time = time.time()
+    last_percent = 0
 
-    # افزودن به صف جهانی
-    await global_upload_queue.put(file_info)
-
-    # محاسبه موقعیت در صف و زمان تقریبی
-    queue_size = global_upload_queue.qsize()
-    queue_position = queue_size
-    estimated_time = calculate_estimated_time(queue_size)
-
-    # نمایش اطلاعات صف به کاربر
-    queue_info = (
-        f"\n\n📊 شما در صف جهانی قرار گرفتید"
-        f"\n🔢 موقعیت: {queue_position}"
-        f"\n⏱ زمان تخمینی شروع: {estimated_time}"
-        f"\n\nلطفاً منتظر بمانید..."
-    )
-
-    await message.edit_text(f"📥 فایل شما در صف آپلود قرار گرفت{queue_info}")
-
-    # راه‌اندازی پردازشگر اگر فعال نیست
-    if not hasattr(bot, "global_queue_processor") or bot.global_queue_processor.done():
-        bot.global_queue_processor = asyncio.create_task(process_global_queue(client))
-        logger.info("Global queue processor started")
-
-    # حذف لینک از لیست انتظار
-    if user_id in pending_links:
-        del pending_links[user_id]
-
-    # تابع نمایش پیشرفت (اختیاری - در صورت نیاز)
+    # تابع نمایش پیشرفت
     async def update_progress(uploaded, total, status="📤 در حال آپلود فایل..."):
-        nonlocal message
+        nonlocal last_update_time, last_percent
 
         # محاسبه درصد پیشرفت
         percent = (uploaded / total) * 100
+
+        # بهینه‌سازی: فقط در صورت تغییر قابل توجه یا گذشت زمان آپدیت شود
+        current_time = time.time()
+        if (percent - last_percent < 5 and
+                current_time - last_update_time < 1.0 and
+                percent < 100):
+            return
+
+        # به‌روزرسانی زمان و درصد آخرین آپدیت
+        last_update_time = current_time
+        last_percent = percent
 
         # ساخت نوار پیشرفت
         progress_bar = "[" + "■" * int(percent / 10) + " " * (10 - int(percent / 10)) + "]"
 
         # محاسبه سرعت و زمان باقیمانده
-        elapsed = time.time() - start_time
+        elapsed = current_time - start_time
         speed = uploaded / elapsed if elapsed > 0 else 0
         eta = (total - uploaded) / speed if speed > 0 else 0
 
@@ -389,8 +234,6 @@ async def handle_link_confirmation(client, callback_query):
         except Exception as e:
             logger.error(f"Error updating progress: {e}")
 
-    # شروع تایمر
-    start_time = time.time()
     # تابع کمکی برای آپدیت امن پیام
     async def safe_edit(text):
         try:
