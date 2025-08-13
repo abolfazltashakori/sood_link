@@ -108,18 +108,17 @@ async def process_global_queue(client):
             user_id = message.from_user.id if message and message.from_user else None
 
             if file_size and user_id:
-                if not decraise_balance(user_id, file_size):
+                if not decrease_traffic(user_id, file_size):
                     if status_msg:
                         await status_msg.edit_text("❌ ترافیک کافی ندارید!")
                     global_upload_queue.task_done()
                     continue
 
-            # شروع پردازش
+
             try:
                 if status_msg:
                     await status_msg.edit_text("⏳ در حال شروع پردازش...")
 
-                # فراخوانی تابع آپلود
                 download_link = await asyncio.to_thread(
                     upload_to_ftp_with_progress,
                     file_info["url"],
@@ -208,7 +207,15 @@ async def return_terrafic(client, message):
 
 @bot.on_message(filters.text & filters.regex(r'https?://[^\s]+'))
 async def handle_link(client: Client, message: Message):
-    user_id = message.from_user.id
+    user = message.from_user
+    user_id = user.id
+
+    create_user_if_not_exists(
+        user_id,
+        user.first_name,
+        user.last_name,
+        user.username
+    )
     url = message.text.strip()
 
     file_name, file_size = await asyncio.to_thread(get_file_info_from_url, url)

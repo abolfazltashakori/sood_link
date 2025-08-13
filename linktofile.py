@@ -64,7 +64,6 @@ class CallbackWrapper:
         return chunk
 
 
-# تغییر در تابع upload_to_ftp_with_progress
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
     try:
         ftp = FTP()
@@ -72,26 +71,31 @@ def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
 
-        # دریافت فایل با نمایش پیشرفت
+        # Get file content in memory
         response = requests.get(file_url, stream=True)
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
         downloaded = 0
-        start_time = time.time()
+        chunks = []
 
-        # تابع کمکی برای خواندن داده‌ها
-        def generate_chunks():
-            nonlocal downloaded
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    downloaded += len(chunk)
-                    if progress_callback:
-                        progress_callback(downloaded, total_size)
-                    yield chunk
+        # Collect all chunks in memory
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                if progress_callback:
+                    progress_callback(downloaded, total_size)
 
-        # آپلود به FTP
-        ftp.storbinary(f'STOR {file_name}', generate_chunks())
+        # Combine all chunks into a single bytes object
+        file_content = b''.join(chunks)
+
+        # Create a BytesIO object to simulate a file
+        from io import BytesIO
+        file_like = BytesIO(file_content)
+
+        # Upload using storbinary
+        ftp.storbinary(f'STOR {file_name}', file_like)
 
         ftp.quit()
         return f"http://{FTP_HOST_IRAN}/{file_name}"

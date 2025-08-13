@@ -82,17 +82,31 @@ def incraise_balance(telegram_id,balance):
     except Exception as e:
         logger.error(f"Error updating user: {e}")
 
-def decraise_balance(telegram_id,balance):
+
+def decraise_balance(telegram_id, balance):
     try:
         conn = sqlite3.connect(DB_FILE)
         cur = conn.cursor()
         cur.execute('SELECT balance FROM users WHERE telegram_id = ?', (telegram_id,))
         result = cur.fetchone()
-        new_balance = result[0] - balance
+
+        if not result:
+            logger.error(f"User {telegram_id} not found")
+            return False
+
+        current_balance = result[0]
+        new_balance = current_balance - balance
+
+        if new_balance < 0:
+            return False
         cur.execute('UPDATE users SET balance = ? WHERE telegram_id = ?', (new_balance, telegram_id))
         conn.commit()
+        return True
     except Exception as e:
         logger.error(f"Error updating user: {e}")
+        return False
+    finally:
+        conn.close()
 
 def return_balance(telegram_id):
     try:
@@ -124,3 +138,39 @@ def return_traffic(telegram_id):
         logger.error(f"Error in return_traffic: {e}")
         return 0
 
+
+def decrease_traffic(telegram_id, traffic_size):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('SELECT file_free, file_buy FROM users WHERE telegram_id = ?', (telegram_id,))
+        result = cur.fetchone()
+        if not result:
+            return False
+        file_free, file_buy = result
+        total_traffic = file_free + file_buy
+
+        if total_traffic < traffic_size:
+            return False
+
+        if file_buy >= traffic_size:
+            new_file_buy = file_buy - traffic_size
+            cur.execute('UPDATE users SET file_buy = ? WHERE telegram_id = ?', (new_file_buy, telegram_id))
+        else:
+
+            remaining = traffic_size - file_buy
+            new_file_buy = 0
+            new_file_free = file_free - remaining
+            cur.execute('''
+                UPDATE users 
+                SET file_buy = ?, file_free = ? 
+                WHERE telegram_id = ?
+            ''', (new_file_buy, new_file_free, telegram_id))
+
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error decreasing traffic: {e}")
+        return False
+    finally:
+        conn.close()
