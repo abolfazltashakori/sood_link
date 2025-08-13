@@ -64,6 +64,7 @@ class CallbackWrapper:
         return chunk
 
 
+# تغییر در تابع upload_to_ftp_with_progress
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
     try:
         ftp = FTP()
@@ -71,15 +72,26 @@ def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
 
-        # دریافت فایل با قابلیت نمایش پیشرفت
+        # دریافت فایل با نمایش پیشرفت
         response = requests.get(file_url, stream=True)
         response.raise_for_status()
 
-        # ایجاد wrapper برای نمایش پیشرفت
-        wrapper = CallbackWrapper(response, progress_callback)
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        start_time = time.time()
 
-        # آپلود فایل به FTP
-        ftp.storbinary(f'STOR {file_name}', wrapper)
+        # تابع کمکی برای خواندن داده‌ها
+        def generate_chunks():
+            nonlocal downloaded
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    downloaded += len(chunk)
+                    if progress_callback:
+                        progress_callback(downloaded, total_size)
+                    yield chunk
+
+        # آپلود به FTP
+        ftp.storbinary(f'STOR {file_name}', generate_chunks())
 
         ftp.quit()
         return f"http://{FTP_HOST_IRAN}/{file_name}"
