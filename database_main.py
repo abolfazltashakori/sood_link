@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 
 import logging
-DB_FILE = 'database.db'
+DB_FILE = '1database.db'
 logger = logging.getLogger(__name__)
 
 
@@ -52,8 +52,9 @@ def create_user_if_not_exists(telegram_id, first_name, last_name, username, bala
         conn = sqlite3.connect(DB_FILE)
         cur = conn.cursor()
         cur.execute('''INSERT OR IGNORE INTO users(
-        telegram_id, first_name, last_name, username, balance, join_date) VALUES (?,?,?,?,?,?)''',
-                    (telegram_id, first_name, last_name, username, balance, join_date))
+                telegram_id, first_name, last_name, username, balance, join_date, file_free) 
+                VALUES (?,?,?,?,?,?,?)''',  # افزودن file_free
+                    (telegram_id, first_name, last_name, username, balance, join_date, 2147483648))
         conn.commit()
     except Exception as e:
         logger.error(f"Error creating user: {e}")
@@ -64,12 +65,11 @@ def used_test_service(telegram_id):
         cur = conn.cursor()
         cur.execute('SELECT file_free FROM users WHERE telegram_id = ?', (telegram_id,))
         result = cur.fetchone()
-        if result[0] >= 0:
-            return True
-        else:
-            return False
+        return result[0] > 0 if result else False
     except Exception as e:
-        logger.error(f"Error creating user: {e}")
+        logger.error(f"Error checking test service: {e}")
+        return False
+
 def incraise_balance(telegram_id,balance):
     try:
         conn = sqlite3.connect(DB_FILE)
