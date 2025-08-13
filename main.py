@@ -199,3 +199,8 @@ async def handle_link_confirmation(client, callback_query):
     except Exception as e:
         logger.error(f"Upload error: {e}")
         await callback_query.message.edit_text("❌ خطای سیستمی در آپلود فایل رخ داد")
+
+
+if __name__ == "__main__":
+    print("🤖 ربات در حال اجراست...")
+    bot.run()
