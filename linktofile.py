@@ -71,31 +71,15 @@ def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
 
-        # Get file content in memory
+        # دریافت فایل با قابلیت نمایش پیشرفت
         response = requests.get(file_url, stream=True)
         response.raise_for_status()
 
-        total_size = int(response.headers.get('content-length', 0))
-        downloaded = 0
-        chunks = []
+        # ایجاد wrapper برای نمایش پیشرفت
+        wrapper = CallbackWrapper(response, progress_callback)
 
-        # Collect all chunks in memory
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                chunks.append(chunk)
-                downloaded += len(chunk)
-                if progress_callback:
-                    progress_callback(downloaded, total_size)
-
-        # Combine all chunks into a single bytes object
-        file_content = b''.join(chunks)
-
-        # Create a BytesIO object to simulate a file
-        from io import BytesIO
-        file_like = BytesIO(file_content)
-
-        # Upload using storbinary
-        ftp.storbinary(f'STOR {file_name}', file_like)
+        # آپلود فایل به FTP
+        ftp.storbinary(f'STOR {file_name}', wrapper)
 
         ftp.quit()
         return f"http://{FTP_HOST_IRAN}/{file_name}"
