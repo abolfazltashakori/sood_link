@@ -10,16 +10,12 @@ from urllib.parse import urlparse
 from ftplib import FTP
 import asyncio
 import logging
+import time  # اضافه کردن ایمپورت time
 from linktofile import *
 
 logger = logging.getLogger(__name__)
 global_convers = {}
 pending_links = {}
-
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-}
 
 
 bot = Client(
@@ -28,6 +24,7 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+
 def readable(size: float) -> str:
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size < 1024:
@@ -36,7 +33,6 @@ def readable(size: float) -> str:
     return f"{size:.2f} GB"
 
 def format_time(seconds: float) -> str:
-    # فرمت‌دهی زمان به صورت خوانا
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
@@ -81,6 +77,7 @@ async def return_terrafic(client, message):
     user_id = message.from_user.id
     traffic = return_traffic(user_id)
     await message.reply_text(f"ترافیک باقی مانده شما: {readable(traffic)}")
+
 @bot.on_message(filters.text & filters.regex("^👑 بخش ادمین$"))
 async def admin_menu(client, message):
     user_id = message.from_user.id
@@ -88,7 +85,7 @@ async def admin_menu(client, message):
         [InlineKeyboardButton("افزایش ترافیک کاربر",callback_data="user_traffic")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await message.reply_text("انتحواب کنید",reply_markup=reply_markup)
+    await message.reply_text("انتخاب کنید",reply_markup=reply_markup)
 
 @bot.on_callback_query(filters.regex("^user_traffic$"))
 async def user_traffic(client, callback_query):
@@ -125,80 +122,6 @@ async def handle_link(client: Client, message: Message):
         quote=True
     )
 
-def get_file_info_from_url(url, retries=2):
-    for attempt in range(retries):
-        try:
-            # تلاش با متد HEAD
-            with requests.Session() as session:
-                session.headers.update(HEADERS)
-                response = session.head(url, allow_redirects=True, timeout=15)
-
-                if response.status_code == 200:
-                    content_disposition = response.headers.get('Content-Disposition', '')
-                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
-
-                    file_name = (
-                        filename_match[0]
-                        if filename_match
-                        else os.path.basename(urlparse(url).path) or "unknown_file"
-                    )
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    return file_name, file_size
-
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-            if attempt < retries - 1:
-                time.sleep(1)
-                continue
-            raise
-
-        except Exception:
-            pass
-
-        try:
-
-            with requests.Session() as session:
-                session.headers.update(HEADERS)
-                response = session.get(url, stream=True, timeout=20)
-
-                if response.status_code == 200:
-                    content_disposition = response.headers.get('Content-Disposition', '')
-                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
-
-                    file_name = (
-                        filename_match[0]
-                        if filename_match
-                        else os.path.basename(urlparse(url).path) or "unknown_file"
-                    )
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    response.close()  # قطع اتصال
-                    return file_name, file_size
-
-        except Exception as e:
-            logger.error(f"Final attempt failed: {e}")
-            return None, 0
-
-    return None, 0
-
-
-# تابع جدید: آپلود به FTP
-def upload_to_ftp(file_url, file_name):
-    try:
-        ftp = FTP()
-        ftp.connect(FTP_HOST_IRAN, 21)
-        ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
-        ftp.cwd('/public_html/')  # مسیر پیش‌فرض
-
-        # دانلود و آپلود همزمان
-        with requests.get(file_url, stream=True) as r:
-            r.raise_for_status()
-            ftp.storbinary(f'STOR {file_name}', r.raw)
-
-        ftp.quit()
-        return f"http://{FTP_HOST_IRAN}/{file_name}"
-
-    except Exception as e:
-        logger.error(f"FTP upload error: {e}")
-        return None
 
 
 @bot.on_callback_query(filters.regex(r'^confirm_link_upload$|^cancel_link_upload$'))
@@ -309,7 +232,7 @@ async def handle_link_confirmation(client, callback_query):
             f"📦 حجم: {readable(file_size)}\n"
             f"🔗 لینک مستقیم: [دانلود فایل]({download_link})"
         )
-        decrease_traffic(user_id,file_size)
+        decrease_traffic(user_id, file_size)
         await safe_edit(success_text)
 
     except Exception as e:
