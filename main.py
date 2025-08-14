@@ -55,9 +55,8 @@ async def start(client, message):
         keyboard = ReplyKeyboardMarkup(
             [
                 [KeyboardButton("📚 راهنما"), KeyboardButton("📊 ترافیک باقیمانده")],
-                [KeyboardButton("💳 تعرفه ها"), KeyboardButton("⚙️ تنظیمات")],
-                [KeyboardButton("👑 بخش ادمین"), KeyboardButton("📈 آمار ربات")],
-                [KeyboardButton("💰 مدیریت موجودی"), KeyboardButton("🤖 سایر ربات‌ها")]
+                [KeyboardButton("👑 بخش ادمین")],
+
             ],
             resize_keyboard=True
         )
@@ -66,8 +65,6 @@ async def start(client, message):
         keyboard = ReplyKeyboardMarkup(
             [
                 [KeyboardButton("📚 راهنما"), KeyboardButton("📊 ترافیک باقیمانده")],
-                [KeyboardButton("💳 تعرفه ها"), KeyboardButton("📈 آمار ربات")],
-                [KeyboardButton("💰 مدیریت موجودی"), KeyboardButton("🤖 سایر ربات‌ها")]
             ],
             resize_keyboard=True
         )
@@ -79,7 +76,18 @@ async def return_terrafic(client, message):
     user_id = message.from_user.id
     traffic = return_traffic(user_id)
     await message.reply_text(f"ترافیک باقی مانده شما: {readable(traffic)}")
+@bot.on_message(filters.text & filters.regex("^👑 بخش ادمین$"))
+async def admin_menu(client, message):
+    user_id = message.from_user.id
+    keyboard = [
+        [InlineKeyboardButton("افزایش ترافیک کاربر",callback_data="user_traffic")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await message.reply_text("انتحواب کنید",reply_markup=reply_markup)
 
+@bot.on_callback_query(filters.regex("^user_traffic$"))
+async def user_traffic(client, callback_query):
+    await callback_query.edit_message_text()
 
 @bot.on_message(filters.text & filters.regex(r'https?://[^\s]+'))
 async def handle_link(client: Client, message: Message):
@@ -272,7 +280,7 @@ async def handle_link_confirmation(client, callback_query):
             f"📦 حجم: {readable(file_size)}\n"
             f"🔗 لینک مستقیم: [دانلود فایل]({download_link})"
         )
-
+        decrease_traffic(user_id,file_size)
         await safe_edit(success_text)
 
     except Exception as e:

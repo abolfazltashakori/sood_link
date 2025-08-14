@@ -174,3 +174,19 @@ def decrease_traffic(telegram_id, traffic_size):
         return False
     finally:
         conn.close()
+
+def incrade_traffic(telegram_id, traffic_size):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('SELECT file_buy FROM users WHERE telegram_id = ?', (telegram_id,))
+        result = cur.fetchone()
+        if not result:
+            return False
+        else:
+            new_file_buy = result[0] + traffic_size
+            cur.execute('UPDATE users SET file_buy = ? WHERE telegram_id = ?', (new_file_buy, telegram_id))
+            return True
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error increasing traffic: {e}")

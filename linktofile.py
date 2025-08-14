@@ -1,49 +1,77 @@
-import os
-import requests
-import re
-import time
 import asyncio
 import logging
 from ftplib import FTP
+from urllib.parse import urlparse
+import requests
+import re
+import os
+import time
 from urllib.parse import urlparse
 
 FTP_HOST_IRAN = os.getenv("FTP_HOST", "ir5.incel.space")
 FTP_USER_IRAN = os.getenv("FTP_USER", "ir5incel")
 FTP_PASS_IRAN = os.getenv("FTP_PASS", "cx4#%ao6Utf#")
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
 
 logger = logging.getLogger(__name__)
 
 
-def get_file_info_from_url(url):
-    try:
+def get_file_info_from_url(url, retries=2):
+    for attempt in range(retries):
+        try:
+            # تلاش با متد HEAD
+            with requests.Session() as session:
+                session.headers.update(HEADERS)
+                response = session.head(url, allow_redirects=True, timeout=15)
 
-        response = requests.head(url, allow_redirects=True, timeout=10)
+                if response.status_code == 200:
+                    content_disposition = response.headers.get('Content-Disposition', '')
+                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
 
+                    file_name = (
+                        filename_match[0]
+                        if filename_match
+                        else os.path.basename(urlparse(url).path) or "unknown_file"
+                    )
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    return file_name, file_size
 
-        if response.status_code == 405:
-            response = requests.get(url, stream=True, timeout=10)
-            response.close()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt < retries - 1:
+                time.sleep(1)
+                continue
+            raise
 
+        except Exception:
+            pass
 
-        content_disposition = response.headers.get('Content-Disposition', '')
-        filename_match = re.findall('filename="?(.+)"?', content_disposition)
+        try:
 
-        if filename_match:
-            file_name = filename_match[0]
-        else:
-            # استخراج نام فایل از URL
-            parsed = urlparse(url)
-            file_name = os.path.basename(parsed.path) or "unknown_file"
+            with requests.Session() as session:
+                session.headers.update(HEADERS)
+                response = session.get(url, stream=True, timeout=20)
 
-        # دریافت حجم فایل
-        file_size = int(response.headers.get('Content-Length', 0))
+                if response.status_code == 200:
+                    content_disposition = response.headers.get('Content-Disposition', '')
+                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
 
-        return file_name, file_size
+                    file_name = (
+                        filename_match[0]
+                        if filename_match
+                        else os.path.basename(urlparse(url).path) or "unknown_file"
+                    )
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    response.close()  # قطع اتصال
+                    return file_name, file_size
 
-    except Exception as e:
-        logger.error(f"Error getting file info: {e}")
-        return None, 0
+        except Exception as e:
+            logger.error(f"Final attempt failed: {e}")
+            return None, 0
+
+    return None, 0
 
 
 class CallbackWrapper:
