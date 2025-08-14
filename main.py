@@ -17,6 +17,11 @@ global_convers = {}
 pending_links = {}
 
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+
 bot = Client(
     "Link_service_bot",
     api_id=API_ID,
@@ -120,35 +125,59 @@ async def handle_link(client: Client, message: Message):
         quote=True
     )
 
-def get_file_info_from_url(url):
-    try:
-        # دریافت هدرهای فایل
-        response = requests.head(url, allow_redirects=True, timeout=10)
+def get_file_info_from_url(url, retries=2):
+    for attempt in range(retries):
+        try:
+            # تلاش با متد HEAD
+            with requests.Session() as session:
+                session.headers.update(HEADERS)
+                response = session.head(url, allow_redirects=True, timeout=15)
 
-        # اگر متد HEAD پشتیبانی نشود
-        if response.status_code == 405:
-            response = requests.get(url, stream=True, timeout=10)
-            response.close()
+                if response.status_code == 200:
+                    content_disposition = response.headers.get('Content-Disposition', '')
+                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
 
-        # استخراج نام فایل
-        content_disposition = response.headers.get('Content-Disposition', '')
-        filename_match = re.findall('filename="?(.+)"?', content_disposition)
+                    file_name = (
+                        filename_match[0]
+                        if filename_match
+                        else os.path.basename(urlparse(url).path) or "unknown_file"
+                    )
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    return file_name, file_size
 
-        if filename_match:
-            file_name = filename_match[0]
-        else:
-            # استخراج نام فایل از URL
-            parsed = urlparse(url)
-            file_name = os.path.basename(parsed.path) or "unknown_file"
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt < retries - 1:
+                time.sleep(1)
+                continue
+            raise
 
-        # دریافت حجم فایل
-        file_size = int(response.headers.get('Content-Length', 0))
+        except Exception:
+            pass
 
-        return file_name, file_size
+        try:
 
-    except Exception as e:
-        logger.error(f"Error getting file info: {e}")
-        return None, 0
+            with requests.Session() as session:
+                session.headers.update(HEADERS)
+                response = session.get(url, stream=True, timeout=20)
+
+                if response.status_code == 200:
+                    content_disposition = response.headers.get('Content-Disposition', '')
+                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
+
+                    file_name = (
+                        filename_match[0]
+                        if filename_match
+                        else os.path.basename(urlparse(url).path) or "unknown_file"
+                    )
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    response.close()  # قطع اتصال
+                    return file_name, file_size
+
+        except Exception as e:
+            logger.error(f"Final attempt failed: {e}")
+            return None, 0
+
+    return None, 0
 
 
 # تابع جدید: آپلود به FTP

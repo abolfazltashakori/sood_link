@@ -19,59 +19,7 @@ HEADERS = {
 logger = logging.getLogger(__name__)
 
 
-def get_file_info_from_url(url, retries=2):
-    for attempt in range(retries):
-        try:
-            # تلاش با متد HEAD
-            with requests.Session() as session:
-                session.headers.update(HEADERS)
-                response = session.head(url, allow_redirects=True, timeout=15)
 
-                if response.status_code == 200:
-                    content_disposition = response.headers.get('Content-Disposition', '')
-                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
-
-                    file_name = (
-                        filename_match[0]
-                        if filename_match
-                        else os.path.basename(urlparse(url).path) or "unknown_file"
-                    )
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    return file_name, file_size
-
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-            if attempt < retries - 1:
-                time.sleep(1)
-                continue
-            raise
-
-        except Exception:
-            pass
-
-        try:
-
-            with requests.Session() as session:
-                session.headers.update(HEADERS)
-                response = session.get(url, stream=True, timeout=20)
-
-                if response.status_code == 200:
-                    content_disposition = response.headers.get('Content-Disposition', '')
-                    filename_match = re.findall('filename="?(.+)"?', content_disposition)
-
-                    file_name = (
-                        filename_match[0]
-                        if filename_match
-                        else os.path.basename(urlparse(url).path) or "unknown_file"
-                    )
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    response.close()  # قطع اتصال
-                    return file_name, file_size
-
-        except Exception as e:
-            logger.error(f"Final attempt failed: {e}")
-            return None, 0
-
-    return None, 0
 
 
 class CallbackWrapper:
