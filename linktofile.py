@@ -1,14 +1,16 @@
-import asyncio
-import logging
-from ftplib import FTP
-from urllib.parse import urlparse
-import requests
+import random
 import re
 import os
 import time
+import requests
 from urllib.parse import urlparse
-import random
-import ssl
+from ftplib import FTP
+import logging
+import urllib3
+
+# غیرفعال کردن هشدارهای SSL (بدون استفاده از requests.packages)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 FTP_HOST_IRAN = os.getenv("FTP_HOST", "ir5.incel.space")
 FTP_USER_IRAN = os.getenv("FTP_USER", "ir5incel")
 FTP_PASS_IRAN = os.getenv("FTP_PASS", "cx4#%ao6Utf#")

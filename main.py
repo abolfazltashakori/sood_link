@@ -98,16 +98,15 @@ async def handle_link(client: Client, message: Message):
 
     file_name, file_size = await asyncio.to_thread(get_file_info_from_url, url)
 
-    if not file_name or file_size == 0:
-        # تلاش با روش جایگزین
-        file_name = extract_filename_from_url(url)
-        file_size = 0
-        if file_name:
-            await message.reply(f"⚠️ دریافت اطلاعات کامل میسر نبود، آپلود با نام {file_name} ادامه می‌یابد")
-        else:
-            return await message.reply("❌ دریافت اطلاعات فایل ناموفق بود")
+    file_name, file_size = await asyncio.to_thread(get_file_info_from_url, url)
 
-    # ذخیره اطلاعات در انتظار تایید
+    if not file_name or file_size == 0:
+        # حذف خطای زیر و استفاده از روش جایگزین
+        file_name = os.path.basename(urlparse(url).path) or f"file_{int(time.time())}"
+        file_size = 0
+        await message.reply(f"⚠️ دریافت اطلاعات کامل میسر نبود، آپلود با نام {file_name} ادامه می‌یابد")
+
+    # بقیه کد بدون تغییر
     pending_links[user_id] = {
         "url": url,
         "file_name": file_name,
