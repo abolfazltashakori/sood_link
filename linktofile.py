@@ -83,26 +83,47 @@ class CallbackWrapper:
             if self.progress_callback:
                 self.progress_callback(self.uploaded, self.total_size)
         return chunk
-
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Referer": "https://www.google.com/",
+        "DNT": "1",
+        "Pragma": "no-cache",
+        "Cache-Control": "no-cache"
+    }
 
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
     try:
+        # دانلود موقت فایل روی سرور
+        headers = get_headers()
+        session = requests.Session()
+
+
+        with session.get(file_url, headers=headers, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            temp_path = f"/tmp/{file_name}"
+
+            with open(temp_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        # آپلود از سرور به FTP
         ftp = FTP()
         ftp.connect(FTP_HOST_IRAN, 21)
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
 
-        # دریافت فایل با قابلیت نمایش پیشرفت
-        response = requests.get(file_url, stream=True)
-        response.raise_for_status()
+        with open(temp_path, 'rb') as f:
+            ftp.storbinary(f'STOR {file_name}', f)
 
-        # ایجاد wrapper برای نمایش پیشرفت
-        wrapper = CallbackWrapper(response, progress_callback)
+        # حذف فایل موقت
+        os.remove(temp_path)
 
-        # آپلود فایل به FTP
-        ftp.storbinary(f'STOR {file_name}', wrapper)
-
-        ftp.quit()
         return f"http://{FTP_HOST_IRAN}/{file_name}"
 
     except Exception as e:
