@@ -98,15 +98,35 @@ def get_headers():
         "Cache-Control": "no-cache"
     }
 
+
+def get_domain_cookies(url):
+    """دریافت کوکی‌ها از دامنه اصلی سایت"""
+    try:
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+        session = requests.Session()
+        session.headers.update(get_headers())
+        response = session.get(base_url, timeout=10, allow_redirects=True)
+
+        # برگرداندن کوکی‌های دریافتی
+        return session.cookies.get_dict()
+    except Exception as e:
+        logger.warning(f"Failed to get domain cookies: {e}")
+        return {}
+
+
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
     temp_path = f"/tmp/{file_name}"
     session = requests.Session()
-    # ایمن‌سازی: اگر می‌خواهید گواهی SSL را نادیده بگیرید
     session.verify = False
-    # جلوگیری از استفاده از پراکسی env (اگر می‌خواهید)
     session.trust_env = False
     session.max_redirects = 10
     session.headers.update(get_headers())
+
+
+    domain_cookies = get_domain_cookies(file_url)
+    session.cookies.update(domain_cookies)
 
     try:
         # ابتدا یک HEAD بزنیم تا ببینیم سرور چه می‌گوید
