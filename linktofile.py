@@ -100,93 +100,117 @@ def get_headers():
 
 
 def get_domain_cookies(url):
-    """دریافت کوکی‌ها از دامنه اصلی سایت"""
+    """دریافت کوکی‌ها از دامنه اصلی سایت با شبیه‌سازی رفتار curl"""
     try:
         parsed = urlparse(url)
-        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        base_url = f"{parsed.scheme}://{parsed.netloc}/"
 
         session = requests.Session()
-        session.headers.update(get_headers())
-        response = session.get(base_url, timeout=10, allow_redirects=True)
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/116.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Referer": "https://www.google.com/",
+            "DNT": "1",
+            "Pragma": "no-cache",
+            "Cache-Control": "no-cache"
+        })
 
-        # برگرداندن کوکی‌های دریافتی
-        return session.cookies.get_dict()
+        # تنظیمات اضافی برای شبیه‌سازی دقیق‌تر curl
+        session.max_redirects = 5
+        session.verify = False
+        session.trust_env = False
+
+        # ارسال درخواست به ریشه دامنه
+        response = session.get(base_url, timeout=15, allow_redirects=True)
+
+        # اگر پاسخ ریدایرکت بود، دنبال کردن ریدایرکت‌ها
+        if response.history:
+            for resp in response.history:
+                logger.debug(f"Redirected to: {resp.url}")
+
+        # برگرداندن تمام کوکی‌ها و هدرها
+        return {
+            "cookies": session.cookies.get_dict(),
+            "final_url": response.url
+        }
     except Exception as e:
-        logger.warning(f"Failed to get domain cookies: {e}")
-        return {}
+        logger.error(f"Failed to get domain cookies: {e}")
+        return {"cookies": {}, "final_url": url}
 
 
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
     temp_path = f"/tmp/{file_name}"
-    session = requests.Session()
-    session.verify = False
-    session.trust_env = False
-    session.max_redirects = 10
-    session.headers.update(get_headers())
-
-
-    domain_cookies = get_domain_cookies(file_url)
-    session.cookies.update(domain_cookies)
 
     try:
-        # ابتدا یک HEAD بزنیم تا ببینیم سرور چه می‌گوید
-        try:
-            head = session.head(file_url, allow_redirects=True, timeout=15)
-        except Exception:
-            head = None
+        # مرحله 1: دریافت کوکی‌ها و اطلاعات دامنه
+        domain_data = get_domain_cookies(file_url)
+        final_domain = domain_data["final_url"]
+        domain_cookies = domain_data["cookies"]
 
-        # تلاش برای دانلود (اولین تلاش با هدرهای اولیه)
+        logger.info(f"Domain cookies: {domain_cookies}")
+        logger.info(f"Final domain: {final_domain}")
+
+        # مرحله 2: ایجاد سشن با تنظیمات دقیق
+        session = requests.Session()
+        session.verify = False
+        session.trust_env = False
+        session.max_redirects = 10
+
+        # تنظیم هدرها مطابق با curl موفق
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/116.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Connection": "keep-alive",
+            "Referer": final_domain,
+            "DNT": "1",
+            "Upgrade-Insecure-Requests": "1"
+        }
+        session.headers.update(headers)
+
+        # افزودن کوکی‌های دریافتی
+        session.cookies.update(domain_cookies)
+
+        # مرحله 3: دانلود فایل با استفاده از سشن آماده شده
+        logger.info(f"Downloading file from: {file_url}")
         r = session.get(file_url, stream=True, timeout=60, allow_redirects=True)
 
-        if r.status_code == 403:
-            try:
-                import cloudscraper
-                scraper = cloudscraper.create_scraper()
-                # کپی هدرها به scraper
-                scraper.headers.update(session.headers)
-                r = scraper.get(file_url, stream=True, timeout=60, allow_redirects=True)
-            except Exception:
-                # cloudscraper نصب نشده یا خطا، ادامه می‌دهیم و لاگ می‌زنیم
-                logger.warning("cloudscraper fallback failed or not installed")
-
-        # در اینجا بررسی نهایی وضعیت
-        if r.status_code not in (200, 206):
-            # لاگِ هدرها/کد برای دیباگ
+        # بررسی وضعیت پاسخ
+        if r.status_code != 200:
             logger.error(f"Download failed: {r.status_code} for url: {file_url}")
-            logger.debug(f"Response headers: {r.headers}")
-            # تلاش نهایی: لاگِ مقداری از متن پاسخ (کم) برای فهم دلیل
-            try:
-                snippet = r.content[:512]
-                logger.debug(f"Response snippet: {snippet!r}")
-            except Exception:
-                pass
+            logger.error(f"Response headers: {r.headers}")
             return None
 
-        # نوشتن فایل موقت و گزارش پیشرفت (اگر callback داده شده)
-        total = int(r.headers.get('content-length') or 0)
+        # مرحله 4: ذخیره فایل موقت با نمایش پیشرفت
+        total_size = int(r.headers.get('content-length', 0))
         downloaded = 0
+        start_time = time.time()
+
         with open(temp_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_callback and total:
-                    try:
-                        progress_callback(downloaded, total)
-                    except Exception:
-                        pass
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
 
-        # آپلود به FTP
+                    # نمایش پیشرفت
+                    if progress_callback and total_size > 0:
+                        progress_callback(downloaded, total_size)
+
+        # مرحله 5: آپلود به سرور FTP
         ftp = FTP()
         ftp.connect(FTP_HOST_IRAN, 21, timeout=30)
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
+
         with open(temp_path, 'rb') as f:
             ftp.storbinary(f'STOR {file_name}', f)
+
         ftp.quit()
 
-        # حذف فایل موقت
+        # مرحله 6: پاکسازی و برگشت لینک
         try:
             os.remove(temp_path)
         except Exception:
@@ -195,9 +219,7 @@ def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
         return f"http://{FTP_HOST_IRAN}/{file_name}"
 
     except Exception as e:
-        # بهتر است لاگ دقیق‌تری داشته باشیم تا متوجه شویم خطا از دانلود است یا FTP
-        logger.error(f"Upload/download error for {file_url}: {e}")
-        # تلاش برای حذف فایل موقت در صورت وجود
+        logger.error(f"Upload/download error: {e}", exc_info=True)
         try:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
