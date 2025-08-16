@@ -3,6 +3,7 @@ import re
 import os
 import time
 import requests
+import shutil
 from urllib.parse import urlparse
 from ftplib import FTP
 import logging
@@ -98,36 +99,90 @@ def get_headers():
     }
 
 def upload_to_ftp_with_progress(file_url, file_name, progress_callback=None):
+    temp_path = f"/tmp/{file_name}"
+    session = requests.Session()
+    # ایمن‌سازی: اگر می‌خواهید گواهی SSL را نادیده بگیرید
+    session.verify = False
+    # جلوگیری از استفاده از پراکسی env (اگر می‌خواهید)
+    session.trust_env = False
+    session.max_redirects = 10
+    session.headers.update(get_headers())
+
     try:
-        # دانلود موقت فایل روی سرور
-        headers = get_headers()
-        session = requests.Session()
+        # ابتدا یک HEAD بزنیم تا ببینیم سرور چه می‌گوید
+        try:
+            head = session.head(file_url, allow_redirects=True, timeout=15)
+        except Exception:
+            head = None
 
+        # تلاش برای دانلود (اولین تلاش با هدرهای اولیه)
+        r = session.get(file_url, stream=True, timeout=60, allow_redirects=True)
 
-        with session.get(file_url, headers=headers, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            temp_path = f"/tmp/{file_name}"
+        if r.status_code == 403:
+            try:
+                import cloudscraper
+                scraper = cloudscraper.create_scraper()
+                # کپی هدرها به scraper
+                scraper.headers.update(session.headers)
+                r = scraper.get(file_url, stream=True, timeout=60, allow_redirects=True)
+            except Exception:
+                # cloudscraper نصب نشده یا خطا، ادامه می‌دهیم و لاگ می‌زنیم
+                logger.warning("cloudscraper fallback failed or not installed")
 
-            with open(temp_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+        # در اینجا بررسی نهایی وضعیت
+        if r.status_code not in (200, 206):
+            # لاگِ هدرها/کد برای دیباگ
+            logger.error(f"Download failed: {r.status_code} for url: {file_url}")
+            logger.debug(f"Response headers: {r.headers}")
+            # تلاش نهایی: لاگِ مقداری از متن پاسخ (کم) برای فهم دلیل
+            try:
+                snippet = r.content[:512]
+                logger.debug(f"Response snippet: {snippet!r}")
+            except Exception:
+                pass
+            return None
 
-        # آپلود از سرور به FTP
+        # نوشتن فایل موقت و گزارش پیشرفت (اگر callback داده شده)
+        total = int(r.headers.get('content-length') or 0)
+        downloaded = 0
+        with open(temp_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total:
+                    try:
+                        progress_callback(downloaded, total)
+                    except Exception:
+                        pass
+
+        # آپلود به FTP
         ftp = FTP()
-        ftp.connect(FTP_HOST_IRAN, 21)
+        ftp.connect(FTP_HOST_IRAN, 21, timeout=30)
         ftp.login(FTP_USER_IRAN, FTP_PASS_IRAN)
         ftp.cwd('/public_html/')
-
         with open(temp_path, 'rb') as f:
             ftp.storbinary(f'STOR {file_name}', f)
+        ftp.quit()
 
         # حذف فایل موقت
-        os.remove(temp_path)
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
 
         return f"http://{FTP_HOST_IRAN}/{file_name}"
 
     except Exception as e:
-        logger.error(f"FTP upload error: {e}")
+        # بهتر است لاگ دقیق‌تری داشته باشیم تا متوجه شویم خطا از دانلود است یا FTP
+        logger.error(f"Upload/download error for {file_url}: {e}")
+        # تلاش برای حذف فایل موقت در صورت وجود
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
         return None
 
 
