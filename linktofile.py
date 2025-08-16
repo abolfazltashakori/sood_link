@@ -9,7 +9,7 @@ from ftplib import FTP
 import logging
 import urllib3
 
-# غیرفعال کردن هشدارهای SSL (بدون استفاده از requests.packages)
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 FTP_HOST_IRAN = os.getenv("FTP_HOST", "ir5.incel.space")
@@ -25,6 +25,18 @@ USER_AGENTS = [
 
 logger = logging.getLogger(__name__)
 
+def get_file_size_via_head(url, session):
+
+    try:
+        response = session.head(url, allow_redirects=True, timeout=15)
+        if response.status_code == 200:
+            content_length = response.headers.get('Content-Length')
+            if content_length and content_length.isdigit():
+                return int(content_length)
+    except Exception as e:
+        logger.warning(f"HEAD request failed: {e}")
+    return 0
+
 
 def get_file_info_from_url(url, retries=3):
     for attempt in range(retries):
@@ -34,30 +46,37 @@ def get_file_info_from_url(url, retries=3):
             session.verify = False
             session.max_redirects = 5
 
-            # تلاش اول با HEAD
-            try:
-                response = session.head(url, headers=headers, allow_redirects=True, timeout=15)
-                if response.status_code == 200:
-                    file_name = extract_filename(url, response.headers.get('Content-Disposition', ''))
-                    file_size = int(response.headers.get('Content-Length', 0))
-                    return file_name, file_size
-            except Exception:
-                pass
 
-            # تلاش با GET
+            file_size = get_file_size_via_head(url, session)
+            if file_size > 0:
+                file_name = extract_filename(url, "")
+                return file_name, file_size
+
+
             response = session.get(url, headers=headers, stream=True, timeout=25)
             if response.status_code == 200:
+
+                content_length = response.headers.get('Content-Length')
+                if content_length and content_length.isdigit():
+                    file_size = int(content_length)
+                else:
+
+                    file_size = len(response.content)
+
                 file_name = extract_filename(url, response.headers.get('Content-Disposition', ''))
-                file_size = int(response.headers.get('Content-Length', 0))
-                if file_size == 0:
-                    file_size = get_size_via_content(url)
                 return file_name, file_size
 
         except Exception as e:
             logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
             time.sleep(1)
 
-    return None, 0
+
+    try:
+        parsed = urlparse(url)
+        file_name = os.path.basename(parsed.path) or f"file_{int(time.time())}"
+        return file_name, 0
+    except Exception:
+        return f"file_{int(time.time())}", 0
 
 def get_size_via_content(url):
     try:
