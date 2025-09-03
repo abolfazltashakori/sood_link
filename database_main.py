@@ -54,7 +54,7 @@ def create_user_if_not_exists(telegram_id, first_name, last_name, username, bala
         cur.execute('''INSERT OR IGNORE INTO users(
                 telegram_id, first_name, last_name, username, balance, join_date, file_free) 
                 VALUES (?,?,?,?,?,?,?)''',  # افزودن file_free
-                    (telegram_id, first_name, last_name, username, balance, join_date, 2147483648))
+                    (telegram_id, first_name, last_name, username, balance, join_date, 107374182400))
         conn.commit()
     except Exception as e:
         logger.error(f"Error creating user: {e}")
