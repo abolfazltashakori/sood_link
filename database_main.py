@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 
 import logging
-DB_FILE = '1database.db'
+DB_FILE = 'final_database.db'
 logger = logging.getLogger(__name__)
 
 
