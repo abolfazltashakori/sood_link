@@ -23,7 +23,7 @@ def init_db():
                         join_date TEXT DEFAULT "",
                         have_subscription BOOLEAN DEFAULT FALSE,
                         file_buy INTEGER DEFAULT 0,
-                        file_free INTEGER DEFAULT 2147483648
+                        file_free INTEGER DEFAULT 107374182400
         );
         ''')
         cur.execute('''
